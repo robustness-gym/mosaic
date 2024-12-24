@@ -6,7 +6,7 @@ import uuid
 import warnings
 from typing import Dict, List, Set
 
-from pydantic import BaseModel, Extra, root_validator
+from pydantic import BaseModel, ConfigDict, Extra, root_validator, model_validator
 
 from meerkat.constants import MEERKAT_NPM_PACKAGE, PathHelper
 from meerkat.dataframe import DataFrame
@@ -146,6 +146,12 @@ class BaseComponent(
     PythonToSvelteMixin,
     BaseModel,
 ):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+        copy_on_model_validation="none"
+    )
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -323,7 +329,7 @@ class BaseComponent(
         vprop_names = [k for k in self.__fields__ if "_self_id" != k] + ["component_id"]
         return {k: self.__getattribute__(k) for k in vprop_names}
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _init_cache(cls, values):
         # This is a workaround because Pydantic automatically converts
         # all Store objects to their underlying values when validating
@@ -331,7 +337,7 @@ class BaseComponent(
         cls._cache = values.copy()
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _endpoint_name_starts_with_on(cls, values):
         """Make sure that all `Endpoint` fields have a name that starts with
         `on_`."""
@@ -386,7 +392,7 @@ class BaseComponent(
                         return out
         return None
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _endpoint_signature_matches(cls, values):
         """Make sure that the signature of the Endpoint that is passed in
         matches the parameter names and types that are sent from Svelte.
@@ -484,7 +490,7 @@ class BaseComponent(
 
         return values
 
-    @root_validator(pre=False)
+    @model_validator(mode="before")
     def _update_cache(cls, values):
         # `cls._cache` only contains the values that were passed in
         # `values` contains all the values, including the ones that
@@ -509,7 +515,7 @@ class BaseComponent(
                 pass
         return values
 
-    @root_validator(pre=False)
+    @model_validator(mode="before")
     def _check_inode(cls, values):
         """Unwrap NodeMixin objects to their underlying Node (except
         Stores)."""
@@ -558,14 +564,20 @@ class BaseComponent(
             ).launch()
         )
 
-    class Config:
-        arbitrary_types_allowed = True
-        extra = Extra.allow
-        copy_on_model_validation = False
+    # class Config:
+    #     arbitrary_types_allowed = True
+    #     extra = Extra.allow
+    #     copy_on_model_validation = False
 
 
 class Component(BaseComponent):
     """Component with simple defaults."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+        ignored_types=(Endpoint, EndpointProperty),
+    )
 
     @classproperty
     def component_name(cls):
@@ -576,7 +588,7 @@ class Component(BaseComponent):
 
         return cls.__name__
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _init_cache(cls, values):
         # This is a workaround because Pydantic automatically converts
         # all Store objects to their underlying values when validating
@@ -595,7 +607,7 @@ class Component(BaseComponent):
 
         return values
 
-    @root_validator(pre=False)
+    @model_validator(mode="before")
     def _convert_fields(cls, values: dict):
         values = cls._cache
         cls._cache = None

@@ -4,7 +4,7 @@ import inspect
 import logging
 import typing
 from functools import partial, wraps
-from typing import Any, Callable, Generic, Union
+from typing import Any, Callable, Generic, Optional, Union
 
 from fastapi import APIRouter, Body
 from pydantic import BaseModel, create_model
@@ -509,9 +509,9 @@ def make_endpoint(endpoint_or_fn: Union[Callable, Endpoint, None]) -> Endpoint:
 
 
 def endpoint(
-    fn: Callable = None,
-    prefix: Union[str, APIRouter] = None,
-    route: str = None,
+    fn: Optional[Callable] = None,
+    prefix: Optional[Union[str, APIRouter]] = None,
+    route: Optional[str] = None,
     method: str = "POST",
 ) -> Endpoint:
     """Decorator to mark a function as an endpoint.

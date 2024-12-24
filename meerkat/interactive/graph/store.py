@@ -4,7 +4,7 @@ from typing import Any, Generic, Iterator, List, Tuple, TypeVar, Union
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
-from pydantic.fields import ModelField
+from pydantic.v1.fields import ModelField
 from wrapt import ObjectProxy
 
 from meerkat.interactive.graph.magic import _magic, is_magic_context
