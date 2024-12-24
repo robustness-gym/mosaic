@@ -4,9 +4,9 @@ import os
 import typing
 import uuid
 import warnings
-from typing import Dict, List, Set
+from typing import Any, ClassVar, Dict, List, Optional, Set
 
-from pydantic import BaseModel, Extra, root_validator
+from pydantic import BaseModel, ConfigDict, Extra, root_validator, model_validator
 
 from meerkat.constants import MEERKAT_NPM_PACKAGE, PathHelper
 from meerkat.dataframe import DataFrame
@@ -146,6 +146,12 @@ class BaseComponent(
     PythonToSvelteMixin,
     BaseModel,
 ):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+    )
+    _cache: ClassVar[Optional[Dict[str, Any]]] = {}
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -196,14 +202,14 @@ class BaseComponent(
 
         return cls.__name__
 
-    @classproperty
+    @classmethod
     def event_names(cls) -> List[str]:
         """Returns a list of event names that this component emits."""
         return [
             k[3:]
-            for k in cls.__fields__
+            for k in cls.model_fields
             if k.startswith("on_")
-            and not issubclass(cls.__fields__[k].type_, EndpointProperty)
+            and not EndpointProperty.is_endpoint_property(cls.model_fields[k].annotation)
         ]
 
     @classproperty
@@ -211,9 +217,9 @@ class BaseComponent(
         """Returns a list of events that this component emits."""
         return [
             k
-            for k in cls.__fields__
+            for k in cls.model_fields
             if k.startswith("on_")
-            and not issubclass(cls.__fields__[k].type_, EndpointProperty)
+            and not EndpointProperty.is_endpoint_property(cls.model_fields[k].annotation)
         ]
 
     @classproperty
@@ -262,30 +268,30 @@ class BaseComponent(
             "property of the BaseComponent correctly."
         )
 
-    @classproperty
+    @classmethod
     def prop_names(cls):
         return [
-            k for k in cls.__fields__ if not k.startswith("on_") and "_self_id" != k
+            k for k in cls.model_fields if not k.startswith("on_") and "_self_id" != k
         ] + [
             k
-            for k in cls.__fields__
+            for k in cls.model_fields
             if k.startswith("on_")
-            and issubclass(cls.__fields__[k].type_, EndpointProperty)
+            and EndpointProperty.is_endpoint_property(cls.model_fields[k].annotation)
         ]
 
-    @classproperty
+    @classmethod
     def prop_bindings(cls):
         if not issubclass(cls, Component):
             # These props need to be bound with `bind:` in Svelte
             types_to_bind = {Store, DataFrame}
             return {
-                prop: cls.__fields__[prop].type_ in types_to_bind
-                for prop in cls.prop_names
+                prop: cls.model_fields[prop].annotation in types_to_bind
+                for prop in cls.prop_names()
             }
         else:
             return {
-                prop: (cls.__fields__[prop].type_ != EndpointProperty)
-                for prop in cls.prop_names
+                prop: not EndpointProperty.is_endpoint_property(cls.model_fields[prop].annotation)
+                for prop in cls.prop_names()
             }
 
     @property
@@ -315,7 +321,7 @@ class BaseComponent(
 
     @property
     def props(self):
-        return {k: self.__getattribute__(k) for k in self.prop_names}
+        return {k: self.__getattribute__(k) for k in self.prop_names()}
 
     @property
     def virtual_props(self):
@@ -323,7 +329,7 @@ class BaseComponent(
         vprop_names = [k for k in self.__fields__ if "_self_id" != k] + ["component_id"]
         return {k: self.__getattribute__(k) for k in vprop_names}
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _init_cache(cls, values):
         # This is a workaround because Pydantic automatically converts
         # all Store objects to their underlying values when validating
@@ -331,7 +337,7 @@ class BaseComponent(
         cls._cache = values.copy()
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _endpoint_name_starts_with_on(cls, values):
         """Make sure that all `Endpoint` fields have a name that starts with
         `on_`."""
@@ -386,7 +392,7 @@ class BaseComponent(
                         return out
         return None
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _endpoint_signature_matches(cls, values):
         """Make sure that the signature of the Endpoint that is passed in
         matches the parameter names and types that are sent from Svelte.
@@ -484,7 +490,7 @@ class BaseComponent(
 
         return values
 
-    @root_validator(pre=False)
+    @model_validator(mode="before")
     def _update_cache(cls, values):
         # `cls._cache` only contains the values that were passed in
         # `values` contains all the values, including the ones that
@@ -509,7 +515,7 @@ class BaseComponent(
                 pass
         return values
 
-    @root_validator(pre=False)
+    @model_validator(mode="before")
     def _check_inode(cls, values):
         """Unwrap NodeMixin objects to their underlying Node (except
         Stores)."""
@@ -558,14 +564,20 @@ class BaseComponent(
             ).launch()
         )
 
-    class Config:
-        arbitrary_types_allowed = True
-        extra = Extra.allow
-        copy_on_model_validation = False
+    # class Config:
+    #     arbitrary_types_allowed = True
+    #     extra = Extra.allow
+    #     copy_on_model_validation = False
 
 
 class Component(BaseComponent):
     """Component with simple defaults."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+        ignored_types=(Endpoint, EndpointProperty),
+    )
 
     @classproperty
     def component_name(cls):
@@ -576,7 +588,7 @@ class Component(BaseComponent):
 
         return cls.__name__
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _init_cache(cls, values):
         # This is a workaround because Pydantic automatically converts
         # all Store objects to their underlying values when validating
@@ -595,18 +607,19 @@ class Component(BaseComponent):
 
         return values
 
-    @root_validator(pre=False)
+    @model_validator(mode="before")
     def _convert_fields(cls, values: dict):
         values = cls._cache
+        print("values", values)
         cls._cache = None
         for name, value in values.items():
             # Wrap all the fields that are not NodeMixins in a Store
             # (i.e. this will exclude DataFrame, Endpoint etc. as well as
             # fields that are already Stores)
             if (
-                name not in cls.__fields__
-                or cls.__fields__[name].type_ == Endpoint
-                or cls.__fields__[name].type_ == EndpointProperty
+                name not in cls.model_fields
+                or cls.model_fields[name].annotation == Endpoint
+                or cls.model_fields[name].annotation == EndpointProperty
             ):
                 # Separately skip Endpoint fields by looking at the field type,
                 # since they are assigned None by default and would be missed

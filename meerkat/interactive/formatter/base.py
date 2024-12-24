@@ -296,12 +296,12 @@ class Formatter(BaseFormatter):
     # TODO: set the signature of the __init__ so it works with autocomplete and docs
     def __init__(self, **kwargs):
         for k in kwargs:
-            if k not in self.component_class.prop_names:
+            if k not in self.component_class.prop_names():
                 raise ValueError(f"{k} is not a valid prop for {self.component_class}")
 
-        for prop_name, field in self.component_class.__fields__.items():
-            if field.name != self.data_prop and prop_name not in kwargs:
-                if field.required:
+        for prop_name, field in self.component_class.model_fields.items():
+            if prop_name != self.data_prop and prop_name not in kwargs:
+                if field.is_required():
                     raise ValueError("""Missing required argument.""")
                 kwargs[prop_name] = field.default
         self._props = kwargs
