@@ -255,18 +255,20 @@ class SvelteWriter(metaclass=Singleton):
         from meerkat.interactive.startup import snake_case_to_camel_case
 
         prop_names_camel_case = [
-            snake_case_to_camel_case(prop_name) for prop_name in component.prop_names
+            snake_case_to_camel_case(prop_name) for prop_name in component.prop_names()
         ]
+        
+        print(component)
 
         return template.render(
             import_style=component.wrapper_import_style,
             component_name=component.component_name,
             path=component.path,
-            prop_names=component.prop_names,
+            prop_names=component.prop_names(),
             prop_names_camel_case=prop_names_camel_case,
-            event_names=component.event_names,
+            event_names=component.event_names(),
             use_bindings=True,
-            prop_bindings=component.prop_bindings,
+            prop_bindings=component.prop_bindings(),
             slottable=component.slottable,
             zip=zip,
             is_user_app=self.app.is_user_app,

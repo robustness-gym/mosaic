@@ -496,7 +496,22 @@ class Endpoint(IdentifiableMixin, NodeMixin, Generic[T]):
 
 
 class EndpointProperty(Endpoint, Generic[T]):
-    pass
+    @classmethod
+    def is_endpoint_property(cls, type_hint):
+        """Check if a type hint is an EndpointProperty or a Union of EndpointProperties."""
+        if isinstance(type_hint, type) and issubclass(type_hint, EndpointProperty):
+            return True
+
+        if isinstance(type_hint, typing._GenericAlias):
+            origin = get_type_hint_origin(type_hint)
+            args = get_type_hint_args(type_hint)
+
+            if origin == typing.Union:
+                return any(cls.is_endpoint_property(arg) for arg in args)
+            elif isinstance(origin, type):
+                return issubclass(origin, EndpointProperty)
+
+        return False
 
 
 def make_endpoint(endpoint_or_fn: Union[Callable, Endpoint, None]) -> Endpoint:

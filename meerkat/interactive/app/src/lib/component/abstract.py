@@ -4,7 +4,7 @@ import os
 import typing
 import uuid
 import warnings
-from typing import Dict, List, Set
+from typing import Any, ClassVar, Dict, List, Optional, Set
 
 from pydantic import BaseModel, ConfigDict, Extra, root_validator, model_validator
 
@@ -149,8 +149,8 @@ class BaseComponent(
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         extra="allow",
-        copy_on_model_validation="none"
     )
+    _cache: ClassVar[Optional[Dict[str, Any]]] = {}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -202,14 +202,14 @@ class BaseComponent(
 
         return cls.__name__
 
-    @classproperty
+    @classmethod
     def event_names(cls) -> List[str]:
         """Returns a list of event names that this component emits."""
         return [
             k[3:]
-            for k in cls.__fields__
+            for k in cls.model_fields
             if k.startswith("on_")
-            and not issubclass(cls.__fields__[k].type_, EndpointProperty)
+            and not EndpointProperty.is_endpoint_property(cls.model_fields[k].annotation)
         ]
 
     @classproperty
@@ -217,9 +217,9 @@ class BaseComponent(
         """Returns a list of events that this component emits."""
         return [
             k
-            for k in cls.__fields__
+            for k in cls.model_fields
             if k.startswith("on_")
-            and not issubclass(cls.__fields__[k].type_, EndpointProperty)
+            and not EndpointProperty.is_endpoint_property(cls.model_fields[k].annotation)
         ]
 
     @classproperty
@@ -268,30 +268,30 @@ class BaseComponent(
             "property of the BaseComponent correctly."
         )
 
-    @classproperty
+    @classmethod
     def prop_names(cls):
         return [
-            k for k in cls.__fields__ if not k.startswith("on_") and "_self_id" != k
+            k for k in cls.model_fields if not k.startswith("on_") and "_self_id" != k
         ] + [
             k
-            for k in cls.__fields__
+            for k in cls.model_fields
             if k.startswith("on_")
-            and issubclass(cls.__fields__[k].type_, EndpointProperty)
+            and EndpointProperty.is_endpoint_property(cls.model_fields[k].annotation)
         ]
 
-    @classproperty
+    @classmethod
     def prop_bindings(cls):
         if not issubclass(cls, Component):
             # These props need to be bound with `bind:` in Svelte
             types_to_bind = {Store, DataFrame}
             return {
-                prop: cls.__fields__[prop].type_ in types_to_bind
-                for prop in cls.prop_names
+                prop: cls.model_fields[prop].annotation in types_to_bind
+                for prop in cls.prop_names()
             }
         else:
             return {
-                prop: (cls.__fields__[prop].type_ != EndpointProperty)
-                for prop in cls.prop_names
+                prop: not EndpointProperty.is_endpoint_property(cls.model_fields[prop].annotation)
+                for prop in cls.prop_names()
             }
 
     @property
@@ -321,7 +321,7 @@ class BaseComponent(
 
     @property
     def props(self):
-        return {k: self.__getattribute__(k) for k in self.prop_names}
+        return {k: self.__getattribute__(k) for k in self.prop_names()}
 
     @property
     def virtual_props(self):
@@ -610,15 +610,16 @@ class Component(BaseComponent):
     @model_validator(mode="before")
     def _convert_fields(cls, values: dict):
         values = cls._cache
+        print("values", values)
         cls._cache = None
         for name, value in values.items():
             # Wrap all the fields that are not NodeMixins in a Store
             # (i.e. this will exclude DataFrame, Endpoint etc. as well as
             # fields that are already Stores)
             if (
-                name not in cls.__fields__
-                or cls.__fields__[name].type_ == Endpoint
-                or cls.__fields__[name].type_ == EndpointProperty
+                name not in cls.model_fields
+                or cls.model_fields[name].annotation == Endpoint
+                or cls.model_fields[name].annotation == EndpointProperty
             ):
                 # Separately skip Endpoint fields by looking at the field type,
                 # since they are assigned None by default and would be missed
